@@ -1,0 +1,18 @@
+node_modules/
+dist/
+vendor/
+*.tsbuildinfo
+.DS_Store
+*.log
+.vscode/
+.idea/
+
+# Cocos Creator
+library/
+temp/
+local/
+build/
+profiles/
+
+# 扩展运行时产生的发现文件（仅出现在被接入的 Cocos 项目里，这里双保险）
+.cocos-mcp.json

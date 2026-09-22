@@ -1,0 +1,33 @@
+{
+  "name": "cocos-mcp-pro",
+  "version": "0.1.0",
+  "description": "开源、跨 AI 客户端的 Cocos Creator 社区 MCP 服务器",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "cocos-mcp-pro": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "vendor"
+  ],
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node tests/stdio-smoke.mjs"
+  },
+  "dependencies": {
+    "@cocos-mcp/shared": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.18.0",
+    "zod": "^3.24.0"
+  },
+  "optionalDependencies": {
+    "playwright": "^1.49.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "name": "cocos-mcp-bridge",
+  "package_version": 2,
+  "version": "0.1.0",
+  "description": "cocos-mcp-pro 的 Cocos Creator 编辑器桥接扩展（在编辑器内执行场景/资源操作）",
+  "author": "cocos-mcp-pro contributors",
+  "license": "MIT",
+  "main": "dist/main.js",
+  "contributions": {
+    "scene": {
+      "script": "dist/scene.js"
+    },
+    "menus": [
+      {
+        "path": "i18n:MAIN_MENU.package.title/cocos-mcp/打印连接信息",
+        "message": "show-connection-info"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "typecheck": "tsc --noEmit",
+    "watch": "node esbuild.mjs --watch"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.0",
+    "zod": "^3.24.0"
+  }
+}

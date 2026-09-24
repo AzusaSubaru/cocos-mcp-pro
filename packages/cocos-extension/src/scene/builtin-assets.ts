@@ -1,25 +1,48 @@
 /**
- * 内置资源别名 → builtinResMgr 资源名。
- * Spike 中在真机导出实际可用名称表后回填/修正。
+ * 内置资源别名 → db://internal 路径（3.8.8 真机确认）。
+ * 编辑器内 builtinResMgr 不保证这些 SpriteFrame 可按名字 get，
+ * 统一走 asset-db 查询 SpriteFrame 子资源 UUID。
  */
+import { getEditor } from '../editor';
+
 export const BUILTIN_ALIASES: Record<string, string> = {
-  default_sprite_splash: 'default-sprite-splash',
-  default_sprite: 'default-sprite-splash',
-  default_sprite_frame: 'default-sprite-frame',
-  default_btn_normal: 'default-btn-normal-sprite-frame',
-  default_btn_pressed: 'default-btn-pressed-sprite-frame',
-  default_btn_hover: 'default-btn-hover-sprite-frame',
-  default_btn_disabled: 'default-btn-disabled-sprite-frame',
+  default_sprite_splash: 'db://internal/default_ui/default_sprite_splash.png',
+  default_sprite: 'db://internal/default_ui/default_sprite_splash.png',
+  default_btn_normal: 'db://internal/default_ui/default_btn_normal.png',
+  default_btn_pressed: 'db://internal/default_ui/default_btn_pressed.png',
+  default_btn_disabled: 'db://internal/default_ui/default_btn_disabled.png',
 };
 
-export function resolveBuiltin(cc: any, aliasOrName: string): any | null {
-  const mgr = cc.builtinResMgr;
-  if (!mgr) return null;
-  const name = BUILTIN_ALIASES[aliasOrName] ?? aliasOrName;
+/** 从 query-asset-info 结果中取 SpriteFrame 子资源 UUID */
+function pickSpriteFrameUuid(info: any): string | null {
+  const subs = info?.subAssets ? Object.values(info.subAssets) : info?.sub_assets;
+  if (Array.isArray(subs)) {
+    const hit = subs.find((s: any) => {
+      const t = String(s.type ?? s.importer ?? '').toLowerCase();
+      return t.includes('sprite-frame') || t.includes('spriteframe');
+    });
+    return (hit?.uuid as string) ?? null;
+  }
+  return null;
+}
+
+/**
+ * 解析别名/路径为可用的 SpriteFrame：
+ * 优先返回内存中的资源对象；拿不到时返回 { __uuid__ } 占位（由编辑器反序列化）。
+ */
+export async function resolveBuiltin(cc: any, aliasOrName: string): Promise<any | null> {
+  const Editor = getEditor();
+  const url = BUILTIN_ALIASES[aliasOrName] ?? (aliasOrName.startsWith('db://') ? aliasOrName : null);
+  if (!url || !Editor?.Message?.request) return null;
+  let info: any;
   try {
-    const r = mgr.get(name);
-    return r ?? null;
+    info = await Editor.Message.request('asset-db', 'query-asset-info', url);
   } catch {
     return null;
   }
+  const uuid = pickSpriteFrameUuid(info);
+  if (!uuid) return null;
+  const cache = cc.assetManager?.assets;
+  const live = cache?.get?.(uuid) ?? cache?.get?.(uuid.replace(/@f9941$/, ''));
+  return live ?? { __uuid__: uuid };
 }

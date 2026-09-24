@@ -155,7 +155,7 @@ export function setProperty(
   return { node: node.name, property, set: serializeValue(cc, converted) };
 }
 
-export function setSpriteFrame(cc: any, ref: string, ref2: string) {
+export async function setSpriteFrame(cc: any, ref: string, ref2: string) {
   const node = findNode(cc, ref);
   if (!node) throw new Error(`节点不存在: ${ref}`);
   let sprite = node.getComponent(cc.Sprite);
@@ -163,7 +163,7 @@ export function setSpriteFrame(cc: any, ref: string, ref2: string) {
     ensureUITransform(cc, node);
     sprite = node.addComponent(cc.Sprite);
   }
-  const frame = resolveAsset(cc, ref2);
+  const frame = await resolveAsset(cc, ref2);
   if (!frame) throw new Error(`SpriteFrame 解析失败: ${ref2}（不是内置别名或已导入资源 UUID）`);
   sprite.spriteFrame = frame;
   if (sprite.sizeMode !== undefined && cc.Sprite?.SizeMode) {
@@ -321,8 +321,8 @@ export async function buildHierarchy(cc: any, spec: any, options: any = {}) {
   const parent = options.parent ? findNode(cc, options.parent) : cc.director.getScene();
   if (!parent) throw new Error(`挂载父节点不存在: ${options.parent ?? '<scene>'}`);
 
-  return withOperation(`mcp-build-${spec?.name ?? 'hierarchy'}`, () => {
-    const node = upsertNode(cc, spec, parent, options, ctx);
+  return withOperation(`mcp-build-${spec?.name ?? 'hierarchy'}`, async () => {
+    const node = await upsertNode(cc, spec, parent, options, ctx);
     // 脚本引用在所有子节点创建后连线
     if (spec.script) {
       const r = attachScript(cc, node.uuid ?? node.id, spec.script.class, spec.script.refs ?? {}, ctx.idMap);
@@ -348,7 +348,7 @@ interface BuildCtx {
   uuidIndex: Map<string, any>;
 }
 
-function upsertNode(cc: any, spec: any, parent: any, options: any, ctx: BuildCtx): any {
+async function upsertNode(cc: any, spec: any, parent: any, options: any, ctx: BuildCtx): Promise<any> {
   let node = (parent.children ?? []).find((c: any) => c.name === spec.name);
   const isNew = !node;
   if (!isNew && options.onExists === 'skip') {
@@ -367,7 +367,7 @@ function upsertNode(cc: any, spec: any, parent: any, options: any, ctx: BuildCtx
     ctx.updated.push(spec.name);
   }
   registerId(spec, node, ctx);
-  applyNodeSpec(cc, node, spec, isNew, options, ctx);
+  await applyNodeSpec(cc, node, spec, isNew, options, ctx);
   return node;
 }
 
@@ -377,7 +377,7 @@ function registerId(spec: any, node: any, ctx: BuildCtx) {
   if (uid) ctx.uuidIndex.set(uid, node);
 }
 
-function applyNodeSpec(cc: any, node: any, spec: any, isNew: boolean, options: any, ctx: BuildCtx) {
+async function applyNodeSpec(cc: any, node: any, spec: any, isNew: boolean, options: any, ctx: BuildCtx) {
   if (typeof spec.active === 'boolean') node.active = spec.active;
   if (spec.position) node.setPosition(spec.position.x ?? 0, spec.position.y ?? 0, spec.position.z ?? 0);
   if (spec.rotation) node.setRotationFromEuler?.(spec.rotation.x ?? 0, spec.rotation.y ?? 0, spec.rotation.z ?? 0);
@@ -400,8 +400,8 @@ function applyNodeSpec(cc: any, node: any, spec: any, isNew: boolean, options: a
 
   // 语法糖
   if (spec.type === 'Label' || spec.text !== undefined || spec.label) applyLabel(cc, node, spec);
-  if (spec.type === 'Sprite' || spec.spriteFrame) applySprite(cc, node, spec);
-  if (spec.type === 'Button') applyButton(cc, node, spec, options, ctx);
+  if (spec.type === 'Sprite' || spec.spriteFrame) await applySprite(cc, node, spec);
+  if (spec.type === 'Button') await applyButton(cc, node, spec, options, ctx);
 
   // 显式组件列表
   for (const compSpec of spec.components ?? []) {
@@ -428,7 +428,7 @@ function applyNodeSpec(cc: any, node: any, spec: any, isNew: boolean, options: a
   }
 
   for (const child of spec.children ?? []) {
-    upsertNode(cc, child, node, options, ctx);
+    await upsertNode(cc, child, node, options, ctx);
   }
 }
 
@@ -446,19 +446,19 @@ function applyLabel(cc: any, node: any, spec: any) {
   }
 }
 
-function applySprite(cc: any, node: any, spec: any) {
+async function applySprite(cc: any, node: any, spec: any) {
   const sprite = node.getComponent(cc.Sprite) ?? node.addComponent(cc.Sprite);
   const ref = spec.spriteFrame ?? 'default_sprite_splash';
-  const frame = resolveAsset(cc, ref);
+  const frame = await resolveAsset(cc, ref);
   if (frame) sprite.spriteFrame = frame;
   else console.warn('[cocos-mcp-bridge] SpriteFrame 未解析:', ref);
   if (cc.Sprite?.SizeMode) sprite.sizeMode = cc.Sprite.SizeMode.CUSTOM;
   if (cc.Sprite?.Type && spec.sliced) sprite.type = cc.Sprite.Type.SLICED;
 }
 
-function applyButton(cc: any, node: any, spec: any, options: any, ctx: BuildCtx) {
+async function applyButton(cc: any, node: any, spec: any, options: any, ctx: BuildCtx) {
   const sprite = node.getComponent(cc.Sprite) ?? node.addComponent(cc.Sprite);
-  const frame = resolveAsset(cc, 'default_btn_normal');
+  const frame = await resolveAsset(cc, 'default_btn_normal');
   if (frame) sprite.spriteFrame = frame;
   if (cc.Sprite?.Type) sprite.type = cc.Sprite.Type.SLICED;
   node.getComponent(cc.Button) ?? node.addComponent(cc.Button);
@@ -518,8 +518,8 @@ function convertInput(cc: any, current: any, input: any, uuidIndex: Map<string, 
   return encodeValue(cc, current, input);
 }
 
-function resolveAsset(cc: any, ref: string): any {
-  const builtin = resolveBuiltin(cc, ref);
+async function resolveAsset(cc: any, ref: string): Promise<any> {
+  const builtin = await resolveBuiltin(cc, ref);
   if (builtin) return builtin;
   if (ref.length >= 20) {
     const asset = cc.assetManager?.assets?.get?.(ref);

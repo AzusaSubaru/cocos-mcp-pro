@@ -13,46 +13,50 @@ import * as validate from './validate';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const cc = require('cc');
 
-function runSceneSelftest() {
+async function runSceneSelftest() {
   const results: Array<{ label: string; ok: boolean; detail: string }> = [];
-  const check = (label: string, fn: () => string) => {
+  const check = async (label: string, fn: () => any) => {
     try {
-      results.push({ label, ok: true, detail: fn() });
+      const r = await fn();
+      results.push({ label, ok: true, detail: String(r) });
     } catch (e: any) {
       results.push({ label, ok: false, detail: String(e?.message ?? e) });
     }
   };
 
-  check('cc 模块加载', () => `version=${cc.engineVersion ?? 'unknown'}`);
+  await check('cc 模块加载', () => `version=${cc.engineVersion ?? 'unknown'}`);
   const scene = cc.director.getScene();
-  check('当前场景可访问', () => scene?.name ?? '(无打开场景)');
-  check('节点 UUID 字段', () => {
+  await check('当前场景可访问', () => scene?.name ?? '(无打开场景)');
+  await check('节点 UUID 字段', () => {
     const n = scene?.children?.[0];
     return n ? `name=${n.name}, uuid=${n.uuid ?? n.id ?? '(无)'}` : '(无节点)';
   });
 
   for (const name of ['Sprite', 'Label', 'Button', 'UITransform', 'Widget', 'Canvas']) {
-    check(`类解析 ${name}`, () => {
+    await check(`类解析 ${name}`, () => {
       const cls = resolveClass(cc, name);
       if (!cls) throw new Error('解析失败');
       return cls.name ?? name;
     });
   }
 
-  for (const alias of ['default-sprite-splash', 'default-btn-normal-sprite-frame']) {
-    check(`内置资源 ${alias}`, () => {
-      const r = resolveBuiltin(cc, alias);
-      if (!r) throw new Error('builtinResMgr 未返回资源');
-      return r.name ?? alias;
-    });
-  }
+  await check('内置资源 default_sprite_splash', async () => {
+    const r = await resolveBuiltin(cc, 'default_sprite_splash');
+    if (!r) throw new Error('未解析到 SpriteFrame');
+    return r.name ?? r.__uuid__ ?? 'ok';
+  });
+  await check('内置资源 default_btn_normal', async () => {
+    const r = await resolveBuiltin(cc, 'default_btn_normal');
+    if (!r) throw new Error('未解析到 SpriteFrame');
+    return r.name ?? r.__uuid__ ?? 'ok';
+  });
 
-  check('assetManager.assets 缓存', () => {
+  await check('assetManager.assets 缓存', () => {
     const cache = cc.assetManager?.assets;
     return cache ? `count=${cache.count ?? cache.size ?? '?'}` : '不可用';
   });
 
-  check('Editor 全局对象', () => {
+  await check('Editor 全局对象', () => {
     const Editor = getEditor();
     return Editor?.Message?.request ? 'Message.request 可用' : 'Editor 不可用（场景脚本将无法标记 dirty/撤销）';
   });

@@ -5,7 +5,14 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getEditor, log, warn } from '../editor';
-import { Msg, addBroadcastListener, removeBroadcastListener, callSceneMethod, probe } from '../adapter/messages';
+import {
+  Msg,
+  EditorMsg,
+  addBroadcastListener,
+  removeBroadcastListener,
+  callSceneMethod,
+  probe,
+} from '../adapter/messages';
 
 const MAX_LOGS = 300;
 const ringBuffer: Array<{ level: string; message: string; time: string }> = [];
@@ -56,7 +63,16 @@ function cocosVersion(): string {
   return Editor?.App?.version ?? Editor?.app?.version ?? 'unknown';
 }
 
-function readDesignResolution(): { w: number; h: number } | null {
+interface DesignResolutionInfo {
+  w: number;
+  h: number;
+  fitWidth: boolean;
+  fitHeight: boolean;
+}
+
+/** 设计分辨率：读项目设置覆盖值；未自定义时返回 3.8 默认 960x640 fitWidth */
+function readDesignResolution(): DesignResolutionInfo {
+  const fallback: DesignResolutionInfo = { w: 960, h: 640, fitWidth: true, fitHeight: false };
   const candidates = [
     'settings/v2/packages/project.json',
     'settings/v2/packages/scene.json',
@@ -66,14 +82,37 @@ function readDesignResolution(): { w: number; h: number } | null {
     try {
       const file = path.join(projectPath(), rel);
       if (!fs.existsSync(file)) continue;
-      const json = JSON.parse(fs.readFileSync(file, 'utf-8'));
+      const json = JSON.parse(fs.readFileSync(file, 'utf8'));
       const dr = json?.general?.designResolution ?? json?.designResolution;
-      if (dr?.width && dr?.height) return { w: dr.width, h: dr.height };
+      if (dr?.width && dr?.height) {
+        return {
+          w: dr.width,
+          h: dr.height,
+          fitWidth: dr.fitWidth ?? true,
+          fitHeight: dr.fitHeight ?? false,
+        };
+      }
     } catch {
-      /* 继续尝试 */
+      /* keep scanning */
     }
   }
-  return null;
+  return fallback;
+}
+
+/** 从项目 package.json + Editor.App 汇总项目信息（project:query-project-info 在 3.8 不存在） */
+async function collectProjectInfo() {
+  const root = projectPath();
+  let pkg: any = {};
+  try {
+    pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  } catch {}
+  return {
+    projectPath: root,
+    projectName: pkg.name ?? path.basename(root),
+    projectUuid: pkg.uuid ?? null,
+    cocosVersion: cocosVersion(),
+    designResolution: readDesignResolution(),
+  };
 }
 
 /* ---------------- 方法表 ---------------- */
@@ -84,18 +123,15 @@ export const mainMethods = {
   },
 
   async getProjectInfo() {
-    const p = projectPath();
-    return {
-      projectPath: p,
-      projectName: path.basename(p),
-      cocosVersion: cocosVersion(),
-      designResolution: readDesignResolution(),
-    };
+    return collectProjectInfo();
   },
 
   async listScenes() {
     try {
-      const assets = await Msg.queryAssets('db://assets/**/*.scene', 'cc.SceneAsset');
+      const assets = await Msg.queryAssets({
+        ccType: 'cc.SceneAsset',
+        pattern: 'db://assets/**/*.scene',
+      });
       return (assets ?? []).map((a: any) => ({
         name: a.name?.replace(/\.scene$/, ''),
         url: a.url,
@@ -108,12 +144,26 @@ export const mainMethods = {
   },
 
   async currentScene() {
+    let uuid: string | null = null;
     try {
-      const info = await Msg.queryScene();
-      if (info) return info;
+      uuid = await Msg.queryScene(); // query-current-scene → 场景 UUID
     } catch {}
-    const pong = await callSceneMethod('ping', []);
-    return { name: pong?.scene ?? null, uuid: null, dirty: null };
+    let name: string | null = null;
+    try {
+      const pong = await callSceneMethod('ping', []);
+      name = pong?.scene ?? null;
+    } catch {}
+    if (uuid && !name) {
+      try {
+        const scenes = await Msg.queryAssets({
+          ccType: 'cc.SceneAsset',
+          pattern: 'db://assets/**/*.scene',
+        });
+        const hit = (scenes as any[]).find((a) => a.uuid === uuid);
+        if (hit) name = String(hit.name).replace(/\.scene$/, '');
+      } catch {}
+    }
+    return { name, uuid, dirty: null };
   },
 
   async openScene(url: string) {
@@ -183,7 +233,7 @@ export const mainMethods = {
     const url = ref.startsWith('db://') ? ref : `db://assets/**/${ref}`;
     let info: any;
     try {
-      info = await Msg.queryAssetInfo(url.includes('*') ? url : url);
+      info = await Msg.queryAssetInfo(url);
     } catch {}
     if (!info && url.includes('*')) {
       const list = await Msg.queryAssets(url);
@@ -261,19 +311,55 @@ export const mainMethods = {
     return snapshot;
   },
 
+  /** 诊断用：透传任意编辑器消息（仅桥接层，不暴露为 MCP 工具） */
+  async rawMessage(pkgName: string, name: string, args: any[] = []) {
+    warn(`rawMessage ${pkgName}:${name} args=`, JSON.stringify(args));
+    return EditorMsg(pkgName, name, ...args);
+  },
+
   /** Spike 自检：main 进程侧探测项 */
   async selftest() {
     const results = [];
-    results.push(await probe('project:query-project-info', () => Msg.queryProjectInfo()));
-    results.push(await probe('asset-db:query-assets(.scene)', () => Msg.queryAssets('db://assets/**/*.scene', 'cc.SceneAsset')));
     results.push(
-      await probe('设计分辨率文件', async () => {
-        const d = readDesignResolution();
-        if (!d) throw new Error('未读到 designResolution');
-        return `${d.w}x${d.h}`;
+      await probe('项目信息（package.json + Editor.App）', async () => {
+        const info = await collectProjectInfo();
+        return `${info.projectName}, cocos ${info.cocosVersion}, ${info.designResolution.w}x${info.designResolution.h}`;
       }),
     );
-    results.push(await probe('scene:query-scene', () => Msg.queryScene()));
+    results.push(
+      await probe('asset-db:query-assets(SceneAsset)', async () => {
+        const list = await Msg.queryAssets({
+          ccType: 'cc.SceneAsset',
+          pattern: 'db://assets/**/*.scene',
+        });
+        return `${list.length} 个场景`;
+      }),
+    );
+    results.push(
+      await probe('设计分辨率（默认 960x640）', async () => {
+        const d = readDesignResolution();
+        return `${d.w}x${d.h} fitW=${d.fitWidth} fitH=${d.fitHeight}`;
+      }),
+    );
+    results.push(await probe('scene:query-current-scene', () => Msg.queryScene()));
+    results.push(
+      await probe('内置 SpriteFrame splash（main resolveAsset）', async () => {
+        const r = await mainMethods.resolveAsset(
+          'db://internal/default_ui/default_sprite_splash.png',
+          'sprite-frame',
+        );
+        return r.uuid;
+      }),
+    );
+    results.push(
+      await probe('内置 SpriteFrame btn-normal', async () => {
+        const r = await mainMethods.resolveAsset(
+          'db://internal/default_ui/default_btn_normal.png',
+          'sprite-frame',
+        );
+        return r.uuid;
+      }),
+    );
     results.push(await probe('preview:query-preview-url', () => Msg.queryPreviewUrl(), 2500));
     results.push(
       await probe('控制台广播监听（静态检查）', async () => {

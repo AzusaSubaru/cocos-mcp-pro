@@ -74,16 +74,21 @@ export const Msg = {
   openScene: (url: string) => EditorMsg('scene', 'open-scene', url),
   saveScene: () => EditorMsg('scene', 'save-scene'),
   closeScene: () => EditorMsg('scene', 'close-scene'),
-  queryScene: () => EditorMsg('scene', 'query-scene'),
+  queryScene: () => EditorMsg('scene', 'query-current-scene'),
   markDirty: () => EditorMsg('scene', 'mark-dirty'),
   beginOperation: (name: string) => EditorMsg('scene', 'begin-operation', name),
   endOperation: () => EditorMsg('scene', 'end-operation'),
   cancelOperation: () => EditorMsg('scene', 'cancel-operation'),
   undo: () => EditorMsg('scene', 'undo'),
 
-  // 资源
-  queryAssets: (pattern: string, type?: string) =>
-    EditorMsg('asset-db', 'query-assets', pattern, type),
+  // 资源（3.8 签名：query-assets(options: QueryAssetsOption) → AssetInfo[]）
+  queryAssets: (selector: string | Record<string, unknown>, type?: string) => {
+    const options =
+      typeof selector === 'string'
+        ? { pattern: selector, ...(type ? { ccType: type } : {}) }
+        : { ...selector, ...(type ? { ccType: type } : {}) };
+    return EditorMsg('asset-db', 'query-assets', options).then(normalizeAssetList);
+  },
   queryAssetInfo: (url: string) => EditorMsg('asset-db', 'query-asset-info', url),
   refreshAsset: (url?: string) => EditorMsg('asset-db', 'refresh-asset', url ?? 'db://assets/'),
   createAsset: (name: string, url: urlType, type: string) =>
@@ -97,10 +102,18 @@ export const Msg = {
 
   // 构建（M2）
   build: (options: unknown) => EditorMsg('builder', 'build', options),
-
-  // 项目
-  queryProjectInfo: () => EditorMsg('project', 'query-project-info'),
 };
+
+/** query-assets 真机返回数组；防御性归一（对象/空值） */
+function normalizeAssetList(r: any): any[] {
+  if (Array.isArray(r)) return r;
+  if (r && typeof r === 'object') {
+    return Object.values(r).filter(
+      (x: any) => x && (x.uuid || x.url) && x.type !== 'database',
+    );
+  }
+  return [];
+}
 
 // 仅用于类型提示占位，createAsset 的 url 是字符串
 type urlType = string;

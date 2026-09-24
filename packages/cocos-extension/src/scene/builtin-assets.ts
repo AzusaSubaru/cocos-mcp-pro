@@ -1,7 +1,9 @@
 /**
  * 内置资源别名 → db://internal 路径（3.8.8 真机确认）。
  * 编辑器内 builtinResMgr 不保证这些 SpriteFrame 可按名字 get，
- * 统一走 asset-db 查询 SpriteFrame 子资源 UUID。
+ * 走 asset-db 查 SpriteFrame 子资源 UUID，再用 assetManager 真正加载进内存。
+ * 注意：绝不能把 { __uuid__ } 占位对象直接赋给 spriteFrame ——
+ * 引擎 setter 会同步访问 frame.rect，占位对象导致 TypeError。
  */
 import { getEditor } from '../editor';
 
@@ -12,6 +14,15 @@ export const BUILTIN_ALIASES: Record<string, string> = {
   default_btn_pressed: 'db://internal/default_ui/default_btn_pressed.png',
   default_btn_disabled: 'db://internal/default_ui/default_btn_disabled.png',
 };
+
+/** 按 UUID 加载资源（子资源带 type） */
+export function loadAssetByUuid(cc: any, uuid: string, type?: any): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const done = (err: any, asset: any) => (err ? reject(err) : resolve(asset));
+    if (type) cc.assetManager.loadAny({ uuid, type }, done);
+    else cc.assetManager.loadAny(uuid, done);
+  });
+}
 
 /** 从 query-asset-info 结果中取 SpriteFrame 子资源 UUID */
 function pickSpriteFrameUuid(info: any): string | null {
@@ -26,9 +37,14 @@ function pickSpriteFrameUuid(info: any): string | null {
   return null;
 }
 
+/** 从内存缓存取（兼容 @f9941 子资源后缀） */
+function fromCache(cc: any, uuid: string): any {
+  const cache = cc.assetManager?.assets;
+  return cache?.get?.(uuid) ?? cache?.get?.(uuid.replace(/@f9941$/, '')) ?? null;
+}
+
 /**
- * 解析别名/路径为可用的 SpriteFrame：
- * 优先返回内存中的资源对象；拿不到时返回 { __uuid__ } 占位（由编辑器反序列化）。
+ * 解析别名/路径为已加载的 SpriteFrame 对象。
  */
 export async function resolveBuiltin(cc: any, aliasOrName: string): Promise<any | null> {
   const Editor = getEditor();
@@ -42,7 +58,11 @@ export async function resolveBuiltin(cc: any, aliasOrName: string): Promise<any 
   }
   const uuid = pickSpriteFrameUuid(info);
   if (!uuid) return null;
-  const cache = cc.assetManager?.assets;
-  const live = cache?.get?.(uuid) ?? cache?.get?.(uuid.replace(/@f9941$/, ''));
-  return live ?? { __uuid__: uuid };
+  const cached = fromCache(cc, uuid);
+  if (cached) return cached;
+  try {
+    return await loadAssetByUuid(cc, uuid, cc.SpriteFrame);
+  } catch {
+    return null;
+  }
 }

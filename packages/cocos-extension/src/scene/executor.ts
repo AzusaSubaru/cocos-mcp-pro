@@ -3,7 +3,7 @@
  * 设计要求：幂等（upsert）、事务包裹（一次构建一次撤销）、失败回滚（不留半成品）。
  */
 import { getEditor } from '../editor';
-import { resolveBuiltin } from './builtin-assets';
+import { resolveBuiltin, loadAssetByUuid } from './builtin-assets';
 import { buildUuidIndex, findNode } from './hierarchy';
 import {
   encodeValue,
@@ -135,7 +135,7 @@ export function getProperty(cc: any, ref: string, component: string | null, prop
   return serializeValue(cc, target?.[property]);
 }
 
-export function setProperty(
+export async function setProperty(
   cc: any,
   ref: string,
   component: string | null,
@@ -149,7 +149,12 @@ export function setProperty(
     err.code = 'INVALID_PARAMS';
     throw err;
   }
-  const converted = convertInput(cc, target[property], value, uuidIndex ?? buildUuidIndex(cc));
+  const converted = await convertInput(
+    cc,
+    target[property],
+    value,
+    uuidIndex ?? buildUuidIndex(cc),
+  );
   target[property] = converted;
   markDirty();
   return { node: node.name, property, set: serializeValue(cc, converted) };
@@ -298,10 +303,12 @@ function getSlotTypeName(comp: any, slot: string): string | null {
 /* ---------------- 批量设置 ---------------- */
 
 export async function batchSet(cc: any, ops: any[]) {
-  return withOperation('mcp-batch-set', () => {
+  return withOperation('mcp-batch-set', async () => {
     const idx = buildUuidIndex(cc);
-    const results = ops.map((op) =>
-      setProperty(cc, op.node, op.component ?? null, op.property, op.value, idx),
+    const results = await Promise.all(
+      ops.map((op) =>
+        setProperty(cc, op.node, op.component ?? null, op.property, op.value, idx),
+      ),
     );
     return { count: results.length, results };
   });
@@ -399,7 +406,10 @@ async function applyNodeSpec(cc: any, node: any, spec: any, isNew: boolean, opti
   }
 
   // 语法糖
-  if (spec.type === 'Label' || spec.text !== undefined || spec.label) applyLabel(cc, node, spec);
+  // 注意：Button 的 spec.label 表示按钮子节点 Label，由 applyButton 处理，不能挂在按钮自身
+  if (spec.type !== 'Button' && (spec.type === 'Label' || spec.text !== undefined)) {
+    applyLabel(cc, node, spec);
+  }
   if (spec.type === 'Sprite' || spec.spriteFrame) await applySprite(cc, node, spec);
   if (spec.type === 'Button') await applyButton(cc, node, spec, options, ctx);
 
@@ -504,16 +514,25 @@ function resolveTarget(cc: any, ref: string, component: string | null) {
   return { node, target: comp };
 }
 
-function convertInput(cc: any, current: any, input: any, uuidIndex: Map<string, any>) {
+async function convertInput(cc: any, current: any, input: any, uuidIndex: Map<string, any>) {
   if (input && typeof input === 'object' && (input.nodeUuid || input.uuid)) {
     if (input.nodeUuid) {
       const n = uuidIndex.get(input.nodeUuid);
       if (!n) throw new Error(`引用节点不存在: ${input.nodeUuid}`);
       return n;
     }
-    const asset = cc.assetManager?.assets?.get?.(input.uuid);
-    if (asset) return asset;
-    return { __uuid__: input.uuid };
+    const uuid: string = input.uuid;
+    const cache = cc.assetManager?.assets;
+    const cached = cache?.get?.(uuid) ?? cache?.get?.(uuid.replace(/@f9941$/, ''));
+    if (cached) return cached;
+    try {
+      return await loadAssetByUuid(
+        cc,
+        uuid,
+        /@f9941$/.test(uuid) ? cc.SpriteFrame : undefined,
+      );
+    } catch {}
+    throw new Error(`资源未能加载: ${uuid}`);
   }
   return encodeValue(cc, current, input);
 }
@@ -522,8 +541,16 @@ async function resolveAsset(cc: any, ref: string): Promise<any> {
   const builtin = await resolveBuiltin(cc, ref);
   if (builtin) return builtin;
   if (ref.length >= 20) {
-    const asset = cc.assetManager?.assets?.get?.(ref);
-    if (asset) return asset;
+    const cache = cc.assetManager?.assets;
+    const cached = cache?.get?.(ref) ?? cache?.get?.(ref.replace(/@f9941$/, ''));
+    if (cached) return cached;
+    try {
+      return await loadAssetByUuid(
+        cc,
+        ref,
+        /@f9941$/.test(ref) ? cc.SpriteFrame : undefined,
+      );
+    } catch {}
   }
   return null;
 }

@@ -43,6 +43,7 @@ function toBridgeError(e: any) {
     code,
     message_zh: `${zhMap[code] ?? '操作失败'}：${msg}`,
     message_en: msg,
+    stack: e?.stack?.split('\n').slice(1, 9).map((s: string) => s.trim()),
     recoverable: true,
   };
 }

@@ -154,6 +154,8 @@ export async function setProperty(
     target[property],
     value,
     uuidIndex ?? buildUuidIndex(cc),
+    target,
+    property,
   );
   target[property] = converted;
   markDirty();
@@ -292,10 +294,26 @@ function resolveRefBySlot(cc: any, comp: any, slot: string, targetNode: any, war
 function getSlotTypeName(comp: any, slot: string): string | null {
   const cls = comp.constructor;
   const containers = [cls?.__attrs__, cls?.__attributes__];
+  // Cocos 3.8.x stores attrs as propName$_$type / propName$_$ctor
+  const keyType = slot + '$_$type';
+  const keyCtor = slot + '$_$ctor';
   for (const c of containers) {
-    const attr = c?.[slot];
-    const t = attr?.type?.toString?.() ?? attr?.ctor?.name ?? attr?.type?.name;
-    if (typeof t === 'string' && t) return t.replace(/^function\s+/, '');
+    if (!c) continue;
+    const typeVal = c[keyType] ?? c[slot]?.type;
+    const ctorVal = c[keyCtor] ?? c[slot]?.ctor;
+    let t: string | null = null;
+    if (typeof typeVal === 'function') {
+      t = typeVal.name;
+    } else if (typeof typeVal === 'string' && typeVal !== 'Object' && typeVal !== 'cc.Object') {
+      // 具体类型字符串（如 "cc.Node"）直接使用；"Object" 是组件引用的泛化标记，需继续看 ctor
+      t = typeVal;
+    }
+    // typeVal 为 "Object"/空 时，真实组件类型在 ctorVal（构造函数）
+    if (!t) {
+      if (typeof ctorVal === 'function') t = ctorVal.name;
+      else if (typeof ctorVal === 'string') t = ctorVal;
+    }
+    if (t) return t.replace(/^function\s+/, '');
   }
   return null;
 }
@@ -514,11 +532,43 @@ function resolveTarget(cc: any, ref: string, component: string | null) {
   return { node, target: comp };
 }
 
-async function convertInput(cc: any, current: any, input: any, uuidIndex: Map<string, any>) {
+async function convertInput(cc: any, current: any, input: any, uuidIndex: Map<string, any>, target?: any, property?: string) {
   if (input && typeof input === 'object' && (input.nodeUuid || input.uuid)) {
     if (input.nodeUuid) {
       const n = uuidIndex.get(input.nodeUuid);
       if (!n) throw new Error(`引用节点不存在: ${input.nodeUuid}`);
+      // 通过装饰器元数据判断属性声明类型，若非 Node 则在目标节点上找同类型组件
+      let typeName = target && property ? getSlotTypeName(target, property) : null;
+      // 兜底1：若元数据未取到类型，尝试从目标节点上找非 UITransform/Canvas/Widget 的组件
+      if (!typeName || typeName === 'UITransform' || typeName === 'Canvas' || typeName === 'Widget') {
+        const comps = (n.components ?? []).filter(
+          (x) => x.constructor !== cc.UITransform && x.constructor !== cc.Canvas && x.constructor !== cc.Widget && !(x instanceof cc.Node),
+        );
+        if (comps.length === 1) {
+          typeName = comps[0].constructor?.name ?? typeName;
+        } else if (comps.length > 1) {
+          // 多个候选时，优先匹配属性名后缀（如 startBtn -> Button）
+          const lower = String(property).toLowerCase();
+          const matched = comps.find((x) => {
+            const cn = (x.constructor?.name ?? '').toLowerCase();
+            return lower.endsWith(cn) || cn.endsWith(lower.replace(/^.*?(btn|button|label|sprite|node|camera|scroll|layout|widget|mask|graphics|progress|slider|toggle|editbox|richtext|pageview|webview|video|spine|dragonbones|particle|animation|audioclip|audioplayer|collider|rigidbody|joint|phyicsmaterial)$/, '$1'));
+          });
+          if (matched) typeName = matched.constructor?.name ?? typeName;
+        }
+      }
+      // 兜底2：若仍无类型但当前值是组件，沿用当前值类型（仅当非 UITransform 时）
+      if ((!typeName || typeName === 'UITransform') && target && property && target[property] && typeof target[property] === 'object' && !(target[property] instanceof cc.Node)) {
+        const curName = target[property] && target[property].constructor && target[property].constructor.name;
+        if (curName && curName !== 'Object' && curName !== 'UITransform') typeName = curName;
+      }
+      
+      if (typeName && typeName !== 'Node' && typeName !== 'cc.Node') {
+        const cls = resolveClass(cc, typeName);
+        if (cls) {
+          const c = n.getComponent?.(cls);
+          if (c) return c;
+        }
+      }
       return n;
     }
     const uuid: string = input.uuid;

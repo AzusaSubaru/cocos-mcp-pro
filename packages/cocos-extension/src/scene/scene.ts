@@ -8,6 +8,7 @@ import * as executor from './executor';
 import { getHierarchy, getNodeInfo } from './hierarchy';
 import { resolveClass } from './properties';
 import { resolveBuiltin } from './builtin-assets';
+import * as transaction from './transaction';
 import * as validate from './validate';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -71,6 +72,12 @@ export const methods = {
     time: Date.now(),
   }),
 
+  // 进程内消息透传（部分消息从 main 跨进程调用会静默失败，必须在 scene 内发）
+  raw: async (name: string, ...args: any[]) => {
+    const Editor = getEditor();
+    return Editor?.Message?.request('scene', name, ...args);
+  },
+
   // 查询
   getHierarchy: (opts: any) => getHierarchy(cc, opts ?? {}),
   getNodeInfo: (ref: string) => getNodeInfo(cc, ref),
@@ -102,8 +109,11 @@ export const methods = {
   attachScript: (ref: string, className: string, refs: Record<string, string>) =>
     executor.attachScript(cc, ref, className, refs),
   batchSet: (ops: any[]) => executor.batchSet(cc, ops),
-  buildHierarchy: (spec: any, options: any) =>
-    executor.buildHierarchy(cc, spec, options),
+  buildHierarchy: (spec: any, options: any) => {
+    const opts = options ?? {};
+    if (opts.engine === 'direct') return executor.buildHierarchy(cc, spec, opts);
+    return transaction.buildViaMessages(cc, spec, opts);
+  },
 
   // 校验
   validateReferences: () => validate.validateReferences(cc),

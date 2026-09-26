@@ -26,18 +26,27 @@ export function registerBuilderTools(server: McpServer) {
         const warnings: string[] = [];
 
         if (data.scene) {
+          // scene 参数支持：场景名 / db:// URL / 资源 UUID（统一在 listScenes 里解析）
+          const want = String(data.scene);
           const cur = await rpc<any>('main', 'currentScene');
-          if (cur?.name && cur.name !== data.scene) {
-            const scenes = await rpc<Array<{ name: string; url: string }>>('main', 'listScenes');
-            const hit = scenes.find((s) => s.name === data.scene);
-            if (hit) {
-              await rpc('main', 'openScene', hit.url);
-              warnings.push(`已切换到场景 ${hit.url}`);
-            } else {
-              warnings.push(
-                `场景 ${data.scene} 不存在，将在当前场景 ${cur.name ?? '?'} 中构建（可先用 asset_create_scene 创建）`,
-              );
-            }
+          const scenes = await rpc<Array<{ name: string; url: string; uuid?: string }>>('main', 'listScenes');
+          const hit = scenes.find(
+            (s) =>
+              s.name === want ||
+              s.url === want ||
+              (!!s.uuid && want.toLowerCase() === String(s.uuid).toLowerCase()),
+          );
+          if (!hit) {
+            // 目标不存在必须中止：静默落到当前场景构建会污染该场景
+            const err: any = new Error(
+              `目标场景不存在: ${want}（可用场景: ${scenes.map((s) => s.name).join('、')}）；已中止构建以避免污染当前场景 ${cur?.name ?? '?'}`,
+            );
+            err.code = 'SCENE_NOT_FOUND';
+            throw err;
+          }
+          if (cur?.name !== hit.name) {
+            await rpc('main', 'openScene', hit.url);
+            warnings.push(`已切换到场景 ${hit.url}`);
           }
         }
 

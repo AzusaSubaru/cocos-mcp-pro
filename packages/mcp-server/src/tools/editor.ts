@@ -26,7 +26,7 @@ export function registerEditorTools(server: McpServer) {
     },
     {
       name: 'cocos_editor_preview_stop',
-      description: '停止预览。',
+      description: '停止预览（3.8.x 无停止消息，返回说明；关闭编辑器即停止）。',
       schema: {},
       target: 'main',
       method: 'previewStop',

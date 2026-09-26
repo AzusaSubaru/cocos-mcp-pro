@@ -283,24 +283,28 @@ export const mainMethods = {
     }
   },
 
-  async previewStart(options?: unknown) {
+  /**
+   * 打开浏览器预览（3.8.8：preview:open 无参数，返回 void；
+   * 预览服务随编辑器运行，无 stop 消息）。
+   */
+  async previewStart() {
     try {
-      const r = await Msg.previewStart(options ?? { platform: 'browser' });
+      await Msg.previewOpen();
       let url: string | null = null;
       try {
         url = await Msg.queryPreviewUrl();
       } catch {}
-      return { started: true, previewUrl: url, raw: r ?? null };
+      return { started: true, previewUrl: url };
     } catch (e: any) {
-      const err: any = new Error(`预览启动失败: ${e?.message ?? e}`);
+      const err: any = new Error(`预览打开失败: ${e?.message ?? e}`);
       err.code = 'PREVIEW_UNAVAILABLE';
       throw err;
     }
   },
 
   async previewStop() {
-    await Msg.previewStop();
-    return { stopped: true };
+    // 3.8.8 无预览停止消息：服务生命周期跟随编辑器
+    return { stopped: false, note: '预览服务随编辑器运行，无停止消息（关闭编辑器即停止）' };
   },
 
   async getDiagnostics(clear = false) {

@@ -95,9 +95,8 @@ export const Msg = {
     EditorMsg('asset-db', 'create-asset', name, url, type),
   deleteAsset: (url: string) => EditorMsg('asset-db', 'delete-asset', url),
 
-  // 预览
-  previewStart: (options?: unknown) => EditorMsg('preview', 'start', options),
-  previewStop: () => EditorMsg('preview', 'stop'),
+  // 预览（3.8.8 真机：无 start/stop，打开用 open，服务随编辑器生命周期）
+  previewOpen: () => EditorMsg('preview', 'open'),
   queryPreviewUrl: () => EditorMsg('preview', 'query-preview-url'),
 
   // 构建（M2）

@@ -391,16 +391,21 @@ async function applyNode(
             dump: { type: 'cc.Node', value: { uuid: targetUuid } },
           });
         } else {
-          // 组件类型槽位：取目标节点上同类型组件（query dump 中读取）
-          const targetNodeDump = await send('query-node', targetUuid);
-          const tComps: any[] = targetNodeDump.__comps__ ?? [];
-          const match = tComps.find((c: any) => c.type === propDump.type);
-          if (match) {
-            await send('set-property', {
+          // 组件类型槽位：取目标节点上同类型组件实例的编辑器 UUID（comp._id 压缩 UUID）
+          const targetNode = findNode(cc, targetUuid);
+          const targetComp = targetNode?.getComponent?.(propDump.type);
+          const compUuid = targetComp?.uuid ?? targetComp?._id;
+          if (compUuid) {
+            const r = await send('set-property', {
               uuid: nodeUuid,
               path: `__comps__.${idx}.${slot}`,
-              dump: { type: propDump.type, value: { uuid: match.cid ?? match.value?.uuid?.value } },
+              dump: { type: propDump.type, value: { uuid: compUuid } },
             });
+            if (r === false) summary.warnings.push(`refs.${slot} 组件槽位连线被引擎拒绝（${propDump.type}）`);
+          } else {
+            summary.warnings.push(
+              `refs.${slot} 目标节点上没有 ${propDump.type} 组件: ${targetRef}`,
+            );
           }
         }
       }

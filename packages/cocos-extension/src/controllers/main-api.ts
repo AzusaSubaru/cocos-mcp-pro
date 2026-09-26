@@ -13,6 +13,7 @@ import {
   callSceneMethod,
   probe,
 } from '../adapter/messages';
+import { sceneTemplate } from './scene-template';
 
 const MAX_LOGS = 300;
 const ringBuffer: Array<{ level: string; message: string; time: string }> = [];
@@ -290,16 +291,13 @@ export const mainMethods = {
     return { created: `${folderUrl}/${name}.ts`, className: cls };
   },
 
-  /** 创建场景（消息名待 Spike 验证） */
+  /** 创建场景：create-asset(url, content) 传入官方 2D 模板并适配设计分辨率（3.8.8 真机验证） */
   async createScene(folderUrl: string, name: string) {
-    try {
-      const r = await Msg.createAsset(`${name}.scene`, `${folderUrl}/${name}.scene` as unknown as string, 'scene');
-      return { created: `${folderUrl}/${name}.scene`, raw: r };
-    } catch (e: any) {
-      const err: any = new Error(`create-asset 场景失败（消息名可能不同）: ${e?.message ?? e}`);
-      err.code = 'METHOD_NOT_FOUND';
-      throw err;
-    }
+    const url = `${folderUrl.replace(/\/+$/, '')}/${name}.scene`;
+    const dr = readDesignResolution();
+    const content = sceneTemplate(name, dr.w, dr.h);
+    const info = await Msg.createAsset(url, content);
+    return { created: url, raw: info };
   },
 
   /**

@@ -91,8 +91,9 @@ export const Msg = {
   },
   queryAssetInfo: (url: string) => EditorMsg('asset-db', 'query-asset-info', url),
   refreshAsset: (url?: string) => EditorMsg('asset-db', 'refresh-asset', url ?? 'db://assets/'),
-  createAsset: (name: string, url: urlType, type: string) =>
-    EditorMsg('asset-db', 'create-asset', name, url, type),
+  /** 3.8 真机签名：create-asset(url, content: string | Buffer | null, option?)，content 为文件内容 */
+  createAsset: (url: string, content: string | Buffer | null, option?: Record<string, unknown>) =>
+    EditorMsg('asset-db', 'create-asset', url, content, option),
   deleteAsset: (url: string) => EditorMsg('asset-db', 'delete-asset', url),
 
   // 预览（3.8.8 真机：无 start/stop，打开用 open，服务随编辑器生命周期）
@@ -114,5 +115,3 @@ function normalizeAssetList(r: any): any[] {
   return [];
 }
 
-// 仅用于类型提示占位，createAsset 的 url 是字符串
-type urlType = string;

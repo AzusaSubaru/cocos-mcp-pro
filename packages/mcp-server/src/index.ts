@@ -18,7 +18,7 @@ function flagValue(args: string[], name: string): string | undefined {
 /** 位置参数：去掉选项及其值 */
 function positional(args: string[]): string[] {
   const flags = new Set(['--http', '--force', '--help', '-h']);
-  const withValues = new Set(['--project', '--port']);
+  const withValues = new Set(['--project', '--port', '--client']);
   const out: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -38,7 +38,8 @@ const HELP = `cocos-mcp-pro - Cocos Creator 社区 MCP 服务器
 用法:
   cocos-mcp-pro                      stdio 模式启动 MCP（默认，TRAE/Claude/Cline）
   cocos-mcp-pro --http [--port 9118] Streamable HTTP 模式（Cursor）
-  cocos-mcp-pro init [项目路径] [--force]   安装编辑器扩展
+  cocos-mcp-pro init [项目路径] [--force] [--client trae|cursor|claude]
+        安装编辑器扩展，并可选自动写入 AI 客户端 MCP 配置
   cocos-mcp-pro selftest [--project 路径]   真机自检
 
 通用参数:
@@ -58,7 +59,13 @@ async function main() {
   const command = positionals[0];
 
   if (command === 'init') {
-    await runInit(positionals[1], args.includes('--force'));
+    const clientRaw = flagValue(args, '--client');
+    const client = clientRaw ? (clientRaw.toLowerCase() as 'trae' | 'cursor' | 'claude') : undefined;
+    if (clientRaw && !['trae', 'cursor', 'claude'].includes(client!)) {
+      console.error(`不支持的客户端: ${clientRaw}（可选 trae / cursor / claude）`);
+      process.exit(1);
+    }
+    await runInit(positionals[1], args.includes('--force'), client);
     return;
   }
 

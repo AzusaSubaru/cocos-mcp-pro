@@ -2,10 +2,50 @@
  * npx cocos-mcp-pro init [projectPath]
  * 把预编译扩展拷贝到 <project>/extensions/cocos-mcp-bridge/
  */
-import { cp, mkdir, rm, readFile } from 'node:fs/promises';
+import { cp, mkdir, rm, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+/** 本包编译后的服务器入口（dist/index.js），用于写入 AI 客户端配置 */
+function localServerEntry(): string {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  return path.resolve(here, 'index.js');
+}
+
+type ClientName = 'trae' | 'cursor' | 'claude';
+
+/**
+ * 把 MCP Server 配置写入对应 AI 客户端：
+ *  - trae:   <project>/.trae/mcp.json
+ *  - cursor: <project>/.cursor/mcp.json
+ *  - claude: <project>/.mcp.json（Claude Code / Cline 同形态）
+ * 已存在配置时合并，保留其它 server 条目。
+ */
+async function writeClientConfig(project: string, client: ClientName): Promise<string> {
+  const rel =
+    client === 'trae' ? path.join('.trae', 'mcp.json')
+    : client === 'cursor' ? path.join('.cursor', 'mcp.json')
+    : path.join('.mcp.json');
+  const file = path.join(project, rel);
+  await mkdir(path.dirname(file), { recursive: true });
+
+  const serverConfig = {
+    command: 'node',
+    args: [localServerEntry(), '--project', project],
+  };
+  const next: any = { mcpServers: { 'cocos-mcp-pro': serverConfig } };
+  if (existsSync(file)) {
+    try {
+      const old = JSON.parse(await readFile(file, 'utf8'));
+      next.mcpServers = { ...(old.mcpServers ?? {}), ...next.mcpServers };
+    } catch {
+      // 旧文件损坏则覆盖
+    }
+  }
+  await writeFile(file, JSON.stringify(next, null, 2), 'utf8');
+  return file;
+}
 
 function vendorCandidates(): string[] {
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -15,7 +55,11 @@ function vendorCandidates(): string[] {
   ];
 }
 
-export async function runInit(targetProject: string | undefined, force: boolean): Promise<void> {
+export async function runInit(
+  targetProject: string | undefined,
+  force: boolean,
+  client?: ClientName,
+): Promise<void> {
   const project = path.resolve(targetProject ?? process.cwd());
   if (!existsSync(path.join(project, 'assets'))) {
     throw new Error(
@@ -45,10 +89,20 @@ export async function runInit(targetProject: string | undefined, force: boolean)
   await writeFile(path.join(extDir, 'package.json'), JSON.stringify(publishPkg, null, 2), 'utf-8');
 
   console.log(`[init] 扩展已安装到: ${extDir}`);
+
+  if (client) {
+    const configFile = await writeClientConfig(project, client);
+    console.log(`[init] 已写入 ${client} MCP 配置: ${configFile}`);
+  }
+
   console.log('');
   console.log('接下来请在 Cocos Creator 中：');
-  console.log('  1. 菜单「扩展 → 扩展管理器 → 已安装/项目」找到 cocos-mcp-bridge，点击启用（首次可能需要刷新/重启编辑器）');
+  console.log('  1. 菜单「扩展 → 扩展管理器 → 项目」找到 cocos-mcp-bridge，点击启用');
   console.log('  2. 扩展启用后会生成 temp/.cocos-mcp.json');
-  console.log('  3. 在 AI 客户端配置 MCP（stdio）: node /path/to/dist/index.js，或 npx cocos-mcp-pro');
+  if (client === 'trae') {
+    console.log('  3. Trae：设置 → MCP → 打开「启用项目 MCP」，然后在对话里直接使用');
+  } else {
+    console.log('  3. 在 AI 客户端配置 MCP（可重跑本命令加 --client trae|cursor|claude 自动生成）');
+  }
   console.log('  4. 验证：npx cocos-mcp-pro selftest --project <项目路径>');
 }

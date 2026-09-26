@@ -167,8 +167,27 @@ export const mainMethods = {
   },
 
   async openScene(url: string) {
-    await Msg.openScene(url);
-    return { opened: url };
+    // Cocos 3.8.x: scene:open-scene expects scene asset UUID.
+    // Passing db:// URL directly triggers "new scene" creation -> empty scene.
+    // Resolve URL to UUID via asset-db first, then open with UUID.
+    let uuid = url;
+    if (url && url.startsWith('db://')) {
+      try {
+        const info: any = await Msg.queryAssetInfo(url);
+        if (info?.uuid) {
+          uuid = info.uuid;
+        } else {
+          try {
+            const r: any = await EditorMsg('asset-db', 'url-to-uuid', url);
+            if (typeof r === 'string') uuid = r;
+          } catch { /* ignore */ }
+        }
+      } catch (e: any) {
+        warn(`openScene: resolve URL->UUID failed (${url}), fallback to direct open: ${e?.message ?? e}`);
+      }
+    }
+    await Msg.openScene(uuid);
+    return { opened: url, uuid };
   },
 
   async saveScene() {

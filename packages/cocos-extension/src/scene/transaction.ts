@@ -317,6 +317,9 @@ async function applyNode(
   // ---- Sprite ----
   if (compTypeIndex.has('cc.Sprite')) {
     const ref = spec.spriteFrame ?? (spec.type === 'Button' ? 'default_btn_normal' : 'default_sprite_splash');
+    // sizeMode 必须先于 spriteFrame 设为 CUSTOM：
+    // TRIMMED/RAW 模式下赋 spriteFrame 会把 UITransform 重置为贴图原始尺寸（default_btn_normal 为 40×40）
+    await setCompProp('cc.Sprite', 'sizeMode', 'Enum', 0); // CUSTOM
     const sfUuid = await resolveAssetUuid(cc, ref);
     if (sfUuid) await setCompProp('cc.Sprite', 'spriteFrame', 'cc.SpriteFrame', { uuid: sfUuid });
     else summary.warnings.push(`SpriteFrame 未解析: ${ref}（节点 ${spec.name}）`);

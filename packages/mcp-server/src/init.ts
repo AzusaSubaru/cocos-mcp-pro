@@ -47,6 +47,33 @@ async function writeClientConfig(project: string, client: ClientName): Promise<s
   return file;
 }
 
+/**
+ * 把项目协作指南（规则模板）写到对应客户端的规则位置：
+ *  - trae:   .trae/rules/cocos-mcp-guide.md（自动加载，托管覆盖）
+ *  - cursor: .cursor/rules/cocos-mcp-guide.md（自动加载，托管覆盖）
+ *  - claude: AGENTS.md（项目根；已存在则保留用户文件，不覆盖）
+ */
+async function writeClientGuide(project: string, client: ClientName): Promise<string> {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const template = path.resolve(here, 'assets', 'cocos-mcp-guide.md');
+  const content = await readFile(template, 'utf8');
+
+  if (client === 'claude') {
+    const file = path.join(project, 'AGENTS.md');
+    if (existsSync(file)) return `${file}（已存在，保留未覆盖）`;
+    await writeFile(file, content, 'utf8');
+    return file;
+  }
+  const rel =
+    client === 'trae'
+      ? path.join('.trae', 'rules', 'cocos-mcp-guide.md')
+      : path.join('.cursor', 'rules', 'cocos-mcp-guide.md');
+  const file = path.join(project, rel);
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, content, 'utf8');
+  return file;
+}
+
 function vendorCandidates(): string[] {
   const here = path.dirname(fileURLToPath(import.meta.url));
   return [
@@ -85,7 +112,6 @@ export async function runInit(
   const { scripts, devDependencies, ...publishPkg } = pkg;
   void scripts;
   void devDependencies;
-  const { writeFile } = await import('node:fs/promises');
   await writeFile(path.join(extDir, 'package.json'), JSON.stringify(publishPkg, null, 2), 'utf-8');
 
   console.log(`[init] 扩展已安装到: ${extDir}`);
@@ -93,6 +119,8 @@ export async function runInit(
   if (client) {
     const configFile = await writeClientConfig(project, client);
     console.log(`[init] 已写入 ${client} MCP 配置: ${configFile}`);
+    const guideFile = await writeClientGuide(project, client);
+    console.log(`[init] 已写入 ${client} 项目规则: ${guideFile}`);
   }
 
   console.log('');

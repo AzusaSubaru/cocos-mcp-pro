@@ -22,6 +22,11 @@ await build({
   logLevel: 'info',
 });
 
+// 复制静态资源（AI 客户端规则模板等）到 dist，init 运行时读取
+await rm(resolve(here, 'dist/assets'), { recursive: true, force: true });
+await cp(resolve(here, 'assets'), resolve(here, 'dist/assets'), { recursive: true });
+console.log('[build] assets copied -> dist/assets');
+
 // 把预编译扩展拷进 vendor，init 命令从这里安装到用户项目
 await rm(vendorDir, { recursive: true, force: true });
 await mkdir(vendorDir, { recursive: true });

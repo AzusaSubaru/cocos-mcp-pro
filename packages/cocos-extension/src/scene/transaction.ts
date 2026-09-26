@@ -185,6 +185,14 @@ export async function buildViaMessages(cc: any, spec: any, options: any = {}): P
       await applyNode(cc, send, p, idMap, summary);
     }
 
+    // ---- 脚本 refs 连线（延后到全部节点组件就绪，修复根节点引用子组件的时序问题）----
+    for (const p of planned) {
+      const refs = p.spec.script?.refs;
+      if (p.spec.script?.class && refs && Object.keys(refs).length) {
+        await wireScriptRefs(cc, send, p, idMap, summary);
+      }
+    }
+
     await send('end-recording', commandId);
   } catch (e) {
     try {
@@ -371,43 +379,52 @@ async function applyNode(
     }
   }
 
-  // ---- 用户脚本 + refs 连线 ----
-  if (spec.script?.class) {
-    const compType = ccclassOf(spec.script.class);
-    const idx = compTypeIndex.get(compType);
-    if (idx !== undefined) {
-      const compDump = compList[idx];
-      for (const [slot, targetRef] of Object.entries(spec.script.refs ?? {})) {
-        const propDump = compDump.value?.[slot];
-        const targetUuid = idMap.get(targetRef as string) ?? findNode(cc, targetRef as string)?.uuid;
-        if (!targetUuid) {
-          summary.warnings.push(`refs.${slot} 目标不存在: ${targetRef}`);
-          continue;
-        }
-        if (propDump?.type === 'cc.Node' || !propDump?.type) {
-          await send('set-property', {
-            uuid: nodeUuid,
-            path: `__comps__.${idx}.${slot}`,
-            dump: { type: 'cc.Node', value: { uuid: targetUuid } },
-          });
-        } else {
-          // 组件类型槽位：取目标节点上同类型组件实例的编辑器 UUID（comp._id 压缩 UUID）
-          const targetNode = findNode(cc, targetUuid);
-          const targetComp = targetNode?.getComponent?.(propDump.type);
-          const compUuid = targetComp?.uuid ?? targetComp?._id;
-          if (compUuid) {
-            const r = await send('set-property', {
-              uuid: nodeUuid,
-              path: `__comps__.${idx}.${slot}`,
-              dump: { type: propDump.type, value: { uuid: compUuid } },
-            });
-            if (r === false) summary.warnings.push(`refs.${slot} 组件槽位连线被引擎拒绝（${propDump.type}）`);
-          } else {
-            summary.warnings.push(
-              `refs.${slot} 目标节点上没有 ${propDump.type} 组件: ${targetRef}`,
-            );
-          }
-        }
+}
+
+/** 所有节点组件就绪后统一连线脚本 refs（原先在 applyNode 内逐节点连线，根节点的 refs 会因子组件未创建而失败） */
+async function wireScriptRefs(
+  cc: any,
+  send: (name: string, ...args: any[]) => any,
+  p: PlannedNode,
+  idMap: Map<string, string>,
+  summary: BuildSummary,
+) {
+  const nodeUuid = p.nodeUuid!;
+  const dump = await send('query-node', nodeUuid);
+  const compList: any[] = Array.isArray(dump.__comps__) ? dump.__comps__ : [];
+  const idx = compList.findIndex((c: any) => c.type === ccclassOf(p.spec.script!.class));
+  if (idx === -1) {
+    summary.warnings.push(`\u811a\u672c\u7ec4\u4ef6\u672a\u521b\u5efa\uff0c\u8df3\u8fc7 refs: ${p.spec.script!.class}\uff08\u8282\u70b9 ${p.spec.name}\uff09`);
+    return;
+  }
+  const compDump = compList[idx];
+  for (const [slot, targetRef] of Object.entries(p.spec.script!.refs ?? {})) {
+    const propDump = compDump.value?.[slot];
+    const targetUuid = idMap.get(targetRef as string) ?? findNode(cc, targetRef as string)?.uuid;
+    if (!targetUuid) {
+      summary.warnings.push(`refs.${slot} \u76ee\u6807\u4e0d\u5b58\u5728: ${targetRef}`);
+      continue;
+    }
+    if (propDump?.type === 'cc.Node' || !propDump?.type) {
+      await send('set-property', {
+        uuid: nodeUuid,
+        path: `__comps__.${idx}.${slot}`,
+        dump: { type: 'cc.Node', value: { uuid: targetUuid } },
+      });
+    } else {
+      // \u7ec4\u4ef6\u7c7b\u578b\u69fd\u4f4d\uff1a\u53d6\u76ee\u6807\u8282\u70b9\u4e0a\u540c\u7c7b\u578b\u7ec4\u4ef6\u5b9e\u4f8b\u7684\u7f16\u8f91\u5668 UUID\uff08comp._id \u538b\u7f29 UUID\uff09
+      const targetNode = findNode(cc, targetUuid);
+      const targetComp = targetNode?.getComponent?.(propDump.type);
+      const compUuid = targetComp?.uuid ?? targetComp?._id;
+      if (compUuid) {
+        const r = await send('set-property', {
+          uuid: nodeUuid,
+          path: `__comps__.${idx}.${slot}`,
+          dump: { type: propDump.type, value: { uuid: compUuid } },
+        });
+        if (r === false) summary.warnings.push(`refs.${slot} \u7ec4\u4ef6\u69fd\u4f4d\u8fde\u7ebf\u88ab\u5f15\u64ce\u62d2\u7edd\uff08${propDump.type}\uff09`);
+      } else {
+        summary.warnings.push(`refs.${slot} \u76ee\u6807\u8282\u70b9\u4e0a\u6ca1\u6709 ${propDump.type} \u7ec4\u4ef6: ${targetRef}`);
       }
     }
   }

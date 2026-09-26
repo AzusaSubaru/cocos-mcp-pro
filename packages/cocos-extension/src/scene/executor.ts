@@ -542,14 +542,14 @@ async function convertInput(cc: any, current: any, input: any, uuidIndex: Map<st
       // 兜底1：若元数据未取到类型，尝试从目标节点上找非 UITransform/Canvas/Widget 的组件
       if (!typeName || typeName === 'UITransform' || typeName === 'Canvas' || typeName === 'Widget') {
         const comps = (n.components ?? []).filter(
-          (x) => x.constructor !== cc.UITransform && x.constructor !== cc.Canvas && x.constructor !== cc.Widget && !(x instanceof cc.Node),
+          (x: any) => x.constructor !== cc.UITransform && x.constructor !== cc.Canvas && x.constructor !== cc.Widget && !(x instanceof cc.Node),
         );
         if (comps.length === 1) {
           typeName = comps[0].constructor?.name ?? typeName;
         } else if (comps.length > 1) {
           // 多个候选时，优先匹配属性名后缀（如 startBtn -> Button）
           const lower = String(property).toLowerCase();
-          const matched = comps.find((x) => {
+          const matched = comps.find((x: any) => {
             const cn = (x.constructor?.name ?? '').toLowerCase();
             return lower.endsWith(cn) || cn.endsWith(lower.replace(/^.*?(btn|button|label|sprite|node|camera|scroll|layout|widget|mask|graphics|progress|slider|toggle|editbox|richtext|pageview|webview|video|spine|dragonbones|particle|animation|audioclip|audioplayer|collider|rigidbody|joint|phyicsmaterial)$/, '$1'));
           });

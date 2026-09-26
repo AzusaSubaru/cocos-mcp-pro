@@ -1,6 +1,6 @@
 {
   "name": "cocos-mcp-pro",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "开源、跨 AI 客户端的 Cocos Creator 社区 MCP 服务器",
   "type": "module",
   "license": "MIT",
